@@ -727,3 +727,5 @@ app.post('/api/user/buy', authorize, async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Сервер запустился на порту ${PORT}`);
 });
+
+module.exports = app; // Это нужно специально для Vercel
