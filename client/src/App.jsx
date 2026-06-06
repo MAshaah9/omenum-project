@@ -81,12 +81,31 @@ function App() {
   // ФУНКЦИЯ ЗАГРУЗКИ ИЗБРАННОГО
   const loadFavorites = async () => {
     const token = localStorage.getItem('token');
-    if (!token) return;
+    
+    // Если токена нет, просто очищаем избранное (актуально при выходе из аккаунта)
+    if (!token) {
+      setFavorites([]);
+      return;
+    }
+
     try {
-      const res = await axios.get('/api/user/favorites', { headers: { token } });
-      setFavorites(res.data.map(f => f.id)); // сохраняем только ID
+      // Отправляем запрос с токеном
+      const res = await axios.get('/api/user/favorites', { 
+        headers: { token: token } 
+      });
+
+      // Проверяем, что пришел массив, и сохраняем только ID квестов
+      if (Array.isArray(res.data)) {
+        setFavorites(res.data.map(f => f.id));
+      } else {
+        setFavorites([]);
+      }
     } catch (e) {
       console.error("Ошибка загрузки избранного:", e);
+      // Если токен протух (401/403), лучше очистить его, чтобы не было вечных ошибок
+      if (e.response?.status === 401 || e.response?.status === 403) {
+        setFavorites([]);
+      }
     }
   };
 
@@ -207,11 +226,14 @@ function App() {
     });
   };
 
-  // --- СИСТЕМНЫЕ ФУНКЦИИ ---
+  // --- СИСТЕМНЫЕ ФУНКЦИИ (ИСПРАВЛЕННАЯ АУТЕНТИФИКАЦИЯ) ---
   const handleAuth = async (e) => {
     e.preventDefault();
+    const endpoint = isLogin ? '/api/login' : '/api/register';
     try {
-      const res = await axios.post(isLogin ? '/api/login' : '/api/register', formData);
+      const res = await axios.post(endpoint, formData);
+      
+      // МЫ ДОЛЖНЫ СОХРАНЯТЬ ТОКЕН И ПРИ ВХОДЕ, И ПРИ РЕГИСТРАЦИИ
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
       setUser(res.data.user);
@@ -223,8 +245,10 @@ function App() {
         setView('main');
         loadUserData();
       }
+
+      alert(isLogin ? "С возвращением!" : "Регистрация успешна!");
     } catch (err) { 
-      alert(err.response?.data || "Ошибка"); 
+      alert(err.response?.data || "Ошибка доступа"); 
     }
   };
 
@@ -316,14 +340,13 @@ function App() {
 
       {view === 'main' && (
         <div className="pb-20 animate-in fade-in duration-1000">
-          {/* Hero-секция (адаптивные шрифты настраиваются внутри самого компонента Hero, либо через общие стили) */}
+          {/* Hero-секция */}
           <Hero onOpenQuiz={() => setShowQuiz(true)} />
 
           {/* СЕКЦИЯ КАТАЛОГА С ОБНОВЛЕННОЙ АДАПТИВНОЙ ЦЕНТРОВКОЙ И ШРИФТАМИ */}
           <section className="max-w-7xl mx-auto px-4 md:px-10 mt-20">
             <div className="text-center mb-16">
               <p className="text-om-accent text-[11px] font-bold uppercase tracking-[0.4em] mb-2">Каталог</p>
-              {/* Адаптивный размер заголовка: text-3xl/4xl на мобилках, крупнее на десктопах */}
               <h3 className="text-3xl sm:text-5xl md:text-7xl font-extrabold text-white tracking-tighter uppercase">
                 Доступные испытания
               </h3>
@@ -387,7 +410,7 @@ function App() {
               </div>
             </div>
             
-            {/* СЕТКА КАРТОЧЕК — Изменено: строго 1 колонка на смартфонах, 2 на планшетах, 3 на десктопах */}
+            {/* СЕТКА КАРТОЧЕК */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredQuests.map(quest => (
                 <QuestCard 
@@ -440,7 +463,7 @@ function App() {
                   </div>
                 </div>
                 
-                {/* ОТОБРАЖЕНИЕ СЕАНСОВ И ПРЕДУПРЕЖДЕНИЯ ТОЛЬКО ПОСЛЕ ВЫБОРА КОМАНДЫ */}
+                {/* ОТОБРАЖЕНИЕ СЕАНСОВ И ПРЕДУПРЕЖДЕНИЯ С ПОСЛЕ ВЫБОРА КОМАНДЫ */}
                 {selectedPlayers ? (
                   <div className="space-y-12 animate-in fade-in slide-in-from-top-4 duration-500">
                     
@@ -556,19 +579,20 @@ function App() {
         />
       )}
 
-      {/* МОДАЛЬНОЕ ОКНО ФОРМЫ БРОНИРОВАНИЯ */}
+      {/* МОДАЛЬНОЕ ОКНО ФОРМЫ БРОНИРОВАНИЯ (ИСПРАВЛЕНА ПЕРЕДАЧА ТОКЕНА) */}
       {showBookingForm && (
         <BookingForm 
           slot={showBookingForm} 
           userBonuses={user?.bonuses || 0}
           onClose={() => setShowBookingForm(null)} 
           onConfirm={async (data) => {
+            const token = localStorage.getItem('token'); // Извлечение токена перед запросом
             try {
               const res = await axios.post('/api/book-slot', { 
                 ...data, 
                 slot_id: showBookingForm.id 
               }, {
-                headers: { token: localStorage.getItem('token') }
+                headers: { token: token } // Передача переменной token в заголовках
               });
 
               alert(res.data.message);
