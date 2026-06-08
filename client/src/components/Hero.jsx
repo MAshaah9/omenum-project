@@ -15,12 +15,13 @@ function Hero({ onOpenQuiz }) {
         </p>
 
         <div className="mt-10 flex flex-col md:flex-row items-center justify-center gap-6">
-          <a
-            href="#quests"
-            className="px-10 py-4 bg-om-accent text-black font-bold uppercase tracking-wider rounded-lg shadow-lg hover:bg-om-accent/80 transition"
-          >
+          
+            <button 
+  onClick={() => document.getElementById('quest-catalog')?.scrollIntoView({ behavior: 'smooth' })}
+  className="bg-om-accent text-white px-10 py-4 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-white hover:text-black transition-all duration-300"
+>
             Смотреть квесты
-          </a>
+</button>
 
           {/* 🔥 Кнопка запуска квиза */}
           <button

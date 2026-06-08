@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { HelpCircle } from 'lucide-react'; // Импорт иконки для плавающей кнопки
 
 // Импорт компонентов
 import Navbar from './components/Navbar';
@@ -11,6 +12,8 @@ import QuestDetails from './components/QuestDetails';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
 import BookingForm from './components/BookingForm';
+import ContactModal from './components/ContactModal'; // Импорт модального окна контактов
+
 
 function App() {
   // --- СОСТОЯНИЯ ФИЛЬТРАЦИИ И ПОИСКА ---
@@ -30,6 +33,7 @@ function App() {
   const [favorites, setFavorites] = useState([]); // Состояние избранных квестов (хранит ID)
   const [view, setView] = useState('main'); // main, profile, admin
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showContact, setShowContact] = useState(false); // Состояние для окна контактов
 
   // Состояние квиза
   const [showQuiz, setShowQuiz] = useState(false);
@@ -45,6 +49,7 @@ function App() {
   const [myBookings, setMyBookings] = useState([]);
   const [myReviews, setMyReviews] = useState([]);
   const [myFavorites, setMyFavorites] = useState([]); // Состояние для хранения полных объектов квестов
+  const [myWaitlist, setMyWaitlist] = useState([]); // Состояние листа ожидания
   const [allBookings, setAllBookings] = useState([]);
   const [allReviews, setAllReviews] = useState([]);
   const [totalRevenue, setTotalRevenue] = useState(0);
@@ -109,7 +114,7 @@ function App() {
     }
   };
 
-  // ОБНОВЛЕННАЯ ФУНКЦИЯ: получает свежий профиль, брони, отзывы и полные объекты квестов из избранного
+  // ОБНОВЛЕННАЯ ФУНКЦИЯ: получает свежий профиль, брони, отзывы, избранное и лист ожидания
   const loadUserData = async () => {
     const h = { headers: { token: localStorage.getItem('token') } };
     try {
@@ -118,21 +123,23 @@ function App() {
       setUser(userRes.data);
       localStorage.setItem('user', JSON.stringify(userRes.data)); // Синхронизируем localStorage
 
-      // Скачиваем брони, отзывы и ИЗБРАННОЕ (объекты квестов)
-      const [bRes, rRes, fRes] = await Promise.all([
+      // Скачиваем брони, отзывы, ИЗБРАННОЕ и ЛИСТ ОЖИДАНИЯ в одном параллельном запросе
+      const [bRes, rRes, fRes, wRes] = await Promise.all([
         axios.get('/api/user/bookings', h),
         axios.get('/api/user/reviews', h),
-        axios.get('/api/user/favorites', h) // Этот маршрут мы создавали в бэкенде
+        axios.get('/api/user/favorites', h),
+        axios.get('/api/user/waitlist', h)
       ]);
 
       setMyBookings(bRes.data);
       setMyReviews(rRes.data);
       setMyFavorites(fRes.data); // Сохраняем массив объектов квестов
+      setMyWaitlist(wRes.data);  // Сохраняем очередь (лист ожидания)
       
       // Дополнительно синхронизируем массив ID для работы иконки-сердечка на главной
       setFavorites(fRes.data.map(f => f.id));
     } catch (e) { 
-      console.error("Ошибка загрузки данных", e); 
+      console.error("Ошибка загрузки данных пользователя:", e); 
     }
   };
 
@@ -347,8 +354,8 @@ function App() {
           <section className="max-w-7xl mx-auto px-4 md:px-10 mt-20">
             <div className="text-center mb-16">
               <p className="text-om-accent text-[11px] font-bold uppercase tracking-[0.4em] mb-2">Каталог</p>
-              <h3 className="text-3xl sm:text-5xl md:text-7xl font-extrabold text-white tracking-tighter uppercase">
-                Доступные испытания
+              <h3 id="quest-catalog" className="text-3xl sm:text-5xl md:text-7xl font-extrabold text-white tracking-tighter uppercase">
+                Доступные квесты
               </h3>
               <div className="h-1 w-20 bg-om-accent mx-auto mt-6 rounded-full opacity-50"></div>
             </div>
@@ -502,15 +509,23 @@ function App() {
 
                               {s.is_booked && (
                                 <button 
-                                  onClick={async () => {
-                                    if(!user) return setShowAuthModal(true);
+                                  onClick={async (e) => {
+                                    e.stopPropagation(); // Чтобы не открылось окно квеста
+                                    if (!user) return setShowAuthModal(true);
+                                    
                                     try {
-                                      await axios.post('/api/user/waitlist', { quest_id: selectedQuestId, date: s.slot_date }, {
-                                        headers: { token: localStorage.getItem('token') }
-                                      });
-                                      alert("Вы в очереди на эту дату!");
-                                    } catch (e) {
-                                      alert(e.response?.data || "Ошибка записи в лист ожидания");
+                                      const token = localStorage.getItem('token');
+                                      const res = await axios.post('/api/user/waitlist', 
+                                        { 
+                                          quest_id: selectedQuestId, 
+                                          slot_date: s.slot_date // Отправляем именно slot_date
+                                        }, 
+                                        { headers: { token: token } }
+                                      );
+                                      alert(res.data);
+                                      loadUserData(); // Обновляем данные кабинета сразу
+                                    } catch (err) {
+                                      alert(err.response?.data || "Ошибка записи в очередь");
                                     }
                                   }}
                                   className="absolute -top-2 -right-2 bg-om-accent p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all shadow-lg z-10"
@@ -542,6 +557,7 @@ function App() {
           myBookings={myBookings}
           myReviews={myReviews}
           myFavorites={myFavorites}
+          myWaitlist={myWaitlist} // Прокидываем состояние очереди в профиль
           onUpdateName={handleUpdateName}
           refreshData={loadUserData}
           onNavigateToBooking={(questId) => {
@@ -565,6 +581,14 @@ function App() {
         isOpen={showQuiz} 
         onClose={() => setShowQuiz(false)} 
         quests={quests} 
+        onResultSelect={(id) => {
+          // 1. Открываем детали квеста (наша функция handleSelectQuest уже это делает)
+          handleSelectQuest(id); 
+          // 2. Прокручиваем к расписанию
+          setTimeout(() => {
+            document.getElementById('schedule-section')?.scrollIntoView({ behavior: 'smooth' });
+          }, 500);
+        }}
       />
 
       {/* МОДАЛЬНОЕ ОКНО ДЕТАЛЕЙ КВЕСТА */}
@@ -579,30 +603,30 @@ function App() {
         />
       )}
 
-      {/* МОДАЛЬНОЕ ОКНО ФОРМЫ БРОНИРОВАНИЯ (ИСПРАВЛЕНА ПЕРЕДАЧА ТОКЕНА) */}
+      {/* МОДАЛЬНОЕ ОКНО ФОРМЫ БРОНИРОВАНИЯ (С ОБНОВЛЕННЫМИ ДАННЫМИ И ПРОВЕРКОЙ НА СЕГОДНЯ) */}
       {showBookingForm && (
         <BookingForm 
           slot={showBookingForm} 
-          userBonuses={user?.bonuses || 0}
+          user={user} // Передаем данные пользователя (имя, почта, бонусы внутри)
+          userBonuses={user?.bonuses || 0} // Оставили на случай, если форма всё ещё ждет этот пропс отдельно
+          selectedPlayers={selectedPlayers} // Передаем выбранный состав (кол-во, цена)
           onClose={() => setShowBookingForm(null)} 
           onConfirm={async (data) => {
-            const token = localStorage.getItem('token'); // Извлечение токена перед запросом
             try {
+              // В data уже лежат final_price и deposit_amount, которые посчитала форма
               const res = await axios.post('/api/book-slot', { 
                 ...data, 
                 slot_id: showBookingForm.id 
               }, {
-                headers: { token: token } // Передача переменной token в заголовках
+                headers: { token: localStorage.getItem('token') }
               });
 
               alert(res.data.message);
-              setShowBookingForm(null); // Закрываем форму
-              
-              await loadUserData(); 
-              setView('profile'); // Переключаем на профиль для оплаты
-              
+              setShowBookingForm(null);
+              await loadUserData(); // Перезагружаем данные
+              setView('profile');   // Переходим в профиль
             } catch (e) { 
-              alert("Ошибка: " + (e.response?.data || "не удалось забронировать")); 
+              alert("Ошибка бронирования"); 
             }
           }} 
         />
@@ -611,6 +635,22 @@ function App() {
       <footer className="py-20 border-t border-white/5 opacity-20 text-center text-[10px] uppercase tracking-[1em] font-light">
         Omenum Labs // 2026
       </footer>
+
+      {/* ПЛАВАЮЩАЯ КНОПКА ВОПРОСА */}
+      <button 
+        onClick={() => setShowContact(true)}
+        className="fixed bottom-8 right-8 z-[100] w-14 h-14 bg-om-accent text-white rounded-full flex items-center justify-center shadow-[0_0_20px_#E63946] hover:scale-110 active:scale-95 transition-all group"
+        title="Задать вопрос"
+      >
+        <HelpCircle size={28} className="group-hover:rotate-12 transition-transform" />
+      </button>
+
+      {/* МОДАЛЬНОЕ ОКНО КОНТАКТОВ */}
+      <ContactModal 
+        isOpen={showContact} 
+        onClose={() => setShowContact(false)} 
+        user={user} 
+      />
     </div>
   );
 }

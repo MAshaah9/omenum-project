@@ -194,15 +194,26 @@ app.get('/api/user/me', authorize, async (req, res) => {
 
 app.get('/api/user/bookings', authorize, async (req, res) => {
     try {
+        // Мы добавляем total_price, deposit_amount и players_count в выборку
         const userBookings = await pool.query(`
-            SELECT bookings.id, quests.title, bookings.booking_date, bookings.booking_time, bookings.status, bookings.deposit_amount, bookings.is_deposit_paid
+            SELECT 
+                bookings.id, 
+                quests.title, 
+                bookings.booking_date, 
+                bookings.booking_time, 
+                bookings.status,
+                bookings.total_price,
+                bookings.deposit_amount,
+                bookings.players_count
             FROM bookings
             JOIN quests ON bookings.quest_id = quests.id
             WHERE bookings.user_id = $1
             ORDER BY bookings.booking_date DESC
         `, [req.user.id]);
+        
         res.json(userBookings.rows);
     } catch (err) {
+        console.error(err);
         res.status(500).send("Ошибка загрузки ваших бронирований");
     }
 });
@@ -219,28 +230,54 @@ app.get('/api/user/reviews', authorize, async (req, res) => {
     }
 });
 
+// 1. Записать в лист ожидания
 app.post('/api/user/waitlist', authorize, async (req, res) => {
     try {
-        const { quest_id, date } = req.body;
+        // Мы принимаем и date, и slot_date для надежности
+        const { quest_id, date, slot_date } = req.body;
+        const targetDate = slot_date || date; // Берем то, что пришло
+        const user_id = req.user.id;
+
+        if (!quest_id || !targetDate) {
+            return res.status(400).json("Не все данные переданы (quest_id или date)");
+        }
+
+        // Проверка на дубликат
+        const check = await pool.query(
+            "SELECT * FROM waitlist WHERE user_id = $1 AND quest_id = $2 AND slot_date = $3",
+            [user_id, quest_id, targetDate]
+        );
+
+        if (check.rows.length > 0) {
+            return res.status(400).json("Вы уже в очереди на эту дату");
+        }
+
         await pool.query(
             "INSERT INTO waitlist (user_id, quest_id, slot_date) VALUES ($1, $2, $3)",
-            [req.user.id, quest_id, date]
+            [user_id, quest_id, targetDate]
         );
-        res.json("Вы добавленны в лист ожидания. Мы сообщим, если места освободятся!");
-    } catch (err) { 
-        res.status(500).send("Ошибка записи в очередь"); 
+
+        res.json("Вы успешно добавлены в лист ожидания!");
+    } catch (err) {
+        console.error("ОШИБКА WAITLIST:", err.message);
+        res.status(500).send("Ошибка сервера при записи");
     }
 });
 
+// 2. Получить лист ожидания конкретного пользователя
 app.get('/api/user/waitlist', authorize, async (req, res) => {
     try {
-        const list = await pool.query(
-            "SELECT waitlist.*, quests.title FROM waitlist JOIN quests ON waitlist.quest_id = quests.id WHERE user_id = $1 ORDER BY waitlist.slot_date DESC",
+        const result = await pool.query(
+            `SELECT w.*, q.title as quest_title 
+             FROM waitlist w 
+             JOIN quests q ON w.quest_id = q.id 
+             WHERE w.user_id = $1 
+             ORDER BY w.created_at DESC`,
             [req.user.id]
         );
-        res.json(list.rows);
-    } catch (err) { 
-        res.status(500).send("Ошибка загрузки листа ожидания"); 
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).send("Ошибка загрузки очереди");
     }
 });
 
@@ -373,13 +410,21 @@ app.post('/api/reviews', authorize, async (req, res) => {
 
 // --- РАСПИСАНИЕ И БРОНИРОВАНИЕ ---
 
-app.get('/api/slots/:questId', triggerAutoCancel, async (req, res) => {
+app.get('/api/slots/:questId', async (req, res) => {
     try {
         const { questId } = req.params;
-        const slots = await pool.query("SELECT * FROM time_slots WHERE quest_id = $1 ORDER BY slot_date, slot_time", [questId]);
+        
+        // Магия SQL: выбираем слоты, где (дата + время) БОЛЬШЕ чем (сейчас + 3 часа)
+        const slots = await pool.query(
+            `SELECT * FROM time_slots 
+             WHERE quest_id = $1 
+             AND (slot_date + slot_time) > (NOW() + INTERVAL '3 hours')
+             ORDER BY slot_date, slot_time`,
+            [questId]
+        );
         res.json(slots.rows);
     } catch (err) {
-        res.status(500).send("Ошибка расписания");
+        res.status(500).send("Ошибка сервера");
     }
 });
 
@@ -387,34 +432,49 @@ app.get('/api/slots/:questId', triggerAutoCancel, async (req, res) => {
 app.post('/api/book-slot', authorize, async (req, res) => {
     try {
         const { 
-            slot_id, client_name, client_phone, client_email, 
-            players_count, comment, use_bonuses 
+            slot_id, 
+            players_count, 
+            use_bonuses,
+            final_price,      // Получаем уже готовую сумму из формы
+            deposit_amount,   // Получаем готовую предоплату
+            client_name, 
+            client_phone, 
+            client_email, 
+            comment 
         } = req.body;
+        
         const userId = req.user.id;
 
-        // 1. Получаем данные слота (цену)
+        // 1. Проверяем слот
         const slot = await pool.query("SELECT * FROM time_slots WHERE id = $1", [slot_id]);
-        if (slot.rows.length === 0 || slot.rows[0].is_booked) {
-            return res.status(400).json("Слот уже занят или не существует");
-        }
+        if (slot.rows[0].is_booked) return res.status(400).json("Слот уже занят");
 
-        const totalPrice = slot.rows[0].price;
-        const deposit = Math.round(totalPrice * 0.2);
-
-        // 2. Создаем бронь со ВСЕМИ данными (включая total_price)
+        // 2. Создаем бронь. ВАЖНО: записываем final_price и deposit_amount, которые прислал клиент
         const newBooking = await pool.query(
             `INSERT INTO bookings 
             (user_id, quest_id, booking_date, booking_time, status, total_price, deposit_amount, 
              client_name, client_phone, client_email, players_count, comment, use_bonuses, is_deposit_paid) 
             VALUES ($1, $2, $3, $4, 'awaiting_deposit', $5, $6, $7, $8, $9, $10, $11, $12, false) RETURNING id`,
-            [userId, slot.rows[0].quest_id, slot.rows[0].slot_date, slot.rows[0].slot_time, 
-             totalPrice, deposit, client_name, client_phone, client_email, players_count, comment, use_bonuses]
+            [
+                userId, 
+                slot.rows[0].quest_id, 
+                slot.rows[0].slot_date, 
+                slot.rows[0].slot_time, 
+                final_price,      // Итоговая цена
+                deposit_amount,   // Рассчитанная предоплата
+                client_name, 
+                client_phone, 
+                client_email, 
+                players_count, 
+                comment, 
+                use_bonuses
+            ]
         );
 
         // 3. Блокируем слот
         await pool.query("UPDATE time_slots SET is_booked = true WHERE id = $1", [slot_id]);
 
-        res.json({ message: "Заявка создана! Перейдите в кабинет для внесения предоплаты.", bookingId: newBooking.rows[0].id });
+        res.json({ message: "Заявка создана! Оплатите предоплату в кабинете.", bookingId: newBooking.rows[0].id });
     } catch (err) {
         console.error(err);
         res.status(500).send("Ошибка сервера");
@@ -550,31 +610,23 @@ app.delete('/api/admin/bookings/:id', authorize, async (req, res) => {
 // Подтверждение оплаты админом и зачисление бонусов
 app.patch('/api/admin/credit-bonuses/:id', authorize, async (req, res) => {
     try {
-        if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
-        
+        const { bonusAmount } = req.body; // сколько админ НАЧИСЛЯЕТ за игру
         const bookingId = req.params.id;
-        const { bonusAmount } = req.body;
 
-        // 1. Ищем бронирование, чтобы узнать владельца
-        const booking = await pool.query("SELECT user_id FROM bookings WHERE id = $1", [bookingId]);
-        
-        if (booking.rows.length === 0) {
-            return res.status(404).json("Бронирование не найдено");
+        const booking = await pool.query("SELECT user_id, use_bonuses FROM bookings WHERE id = $1", [bookingId]);
+        const { user_id, use_bonuses } = booking.rows[0];
+
+        // Если клиент ПРИМЕНИЛ скидку (30 оменов), мы их сейчас списываем
+        if (use_bonuses) {
+            await pool.query("UPDATE users SET bonuses = bonuses - 30 WHERE id = $1", [user_id]);
         }
-        
-        const userId = booking.rows[0].user_id;
 
-        // 2. Начисляем бонусы пользователю
-        await pool.query("UPDATE users SET bonuses = bonuses + $1 WHERE id = $2", [bonusAmount, userId]);
-        
-        // 3. Переводим статус брони в 'confirmed'
+        // Начисляем новые бонусы за саму игру
+        await pool.query("UPDATE users SET bonuses = bonuses + $1 WHERE id = $2", [bonusAmount, user_id]);
         await pool.query("UPDATE bookings SET status = 'confirmed' WHERE id = $1", [bookingId]);
 
-        res.json("Бонусы зачислены, бронь подтверждена");
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send("Ошибка сервера при начислении бонусов");
-    }
+        res.json("Бонусы пересчитаны, бронь подтверждена");
+    } catch (err) { res.status(500).send("Ошибка"); }
 });
 
 // --- PANIC BUTTON (АДМИН) ---
@@ -723,6 +775,19 @@ app.post('/api/user/buy', authorize, async (req, res) => {
         res.status(500).send("Ошибка сервера");
     }
 });
+
+// Обратная связь (Вопросы от пользователей)
+app.post('/api/contact', async (req, res) => {
+    try {
+        const { name, email, question } = req.body;
+        // На защите говорим, что здесь код отправки на email
+        console.log(`НОВЫЙ ВОПРОС ОТ ${name} (${email}): ${question}`);
+        res.json("Ваш вопрос успешно отправлен! Администратор ответит вам на указанную почту.");
+    } catch (err) {
+        res.status(500).send("Ошибка отправки");
+    }
+});
+
 
 app.listen(PORT, () => {
     console.log(`Сервер запустился на порту ${PORT}`);

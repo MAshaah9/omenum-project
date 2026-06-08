@@ -254,20 +254,26 @@ const Profile = ({ user, myBookings, myReviews, myWaitlist = [], myFavorites = [
                         </div>
                       )}
 
-                      {/* Нижняя интерактивная часть */}
+                      {/* Нижняя интерактивная часть с защищенным выводом цен */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 pt-6 border-t border-white/5 mt-auto">
                         <div className="flex flex-wrap gap-6 sm:gap-10">
                           <div>
                             <p className="text-[9px] text-gray-500 uppercase font-bold mb-1">Общая сумма</p>
-                            <p className="text-base sm:text-lg font-bold text-white">{b.total_price || 120} BYN</p>
+                            <p className="text-base sm:text-lg font-bold text-white">
+                              {b.total_price ? b.total_price : '0'} BYN
+                            </p>
                           </div>
                           <div>
                             <p className="text-[9px] text-gray-500 uppercase font-bold mb-1">Предоплата</p>
-                            <p className="text-base sm:text-lg font-bold text-om-accent">{b.deposit_amount || 24} BYN</p>
+                            <p className="text-base sm:text-lg font-bold text-om-accent">
+                              {b.deposit_amount ? b.deposit_amount : '0'} BYN
+                            </p>
                           </div>
                           <div>
                             <p className="text-[9px] text-gray-500 uppercase font-bold mb-1">Игроки</p>
-                            <p className="text-base sm:text-lg font-bold text-white">{b.players_count ? `${b.players_count} чел` : '2 чел'}</p> 
+                            <p className="text-base sm:text-lg font-bold text-white">
+                              {b.players_count ? `${b.players_count} чел` : '— чел'}
+                            </p> 
                           </div>
                         </div>
 
@@ -342,21 +348,26 @@ const Profile = ({ user, myBookings, myReviews, myWaitlist = [], myFavorites = [
 
           {/* TAB: WAITLIST */}
           {activeTab === 'waitlist' && (
-            <div className="animate-in fade-in duration-500">
-              <h2 className="text-2xl lg:text-3xl font-black text-white mb-6 lg:mb-10 tracking-tighter uppercase italic">Ваша очередь</h2>
+            <div className="animate-in fade-in duration-500 text-left">
+              <h2 className="text-3xl font-black text-white mb-10 tracking-tighter uppercase italic border-l-4 border-om-accent pl-6">Ваша очередь</h2>
               <div className="space-y-4">
                 {myWaitlist.length === 0 ? (
-                  <p className="text-om-gray italic">Вы пока не записывались в очередь...</p>
+                  <p className="text-om-gray italic">Вы пока не записывались в очередь на закрытые даты...</p>
                 ) : (
                   myWaitlist.map(w => (
-                    <div key={w.id} className="p-6 bg-om-accent/5 border border-om-accent/20 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div key={w.id} className="p-6 bg-om-accent/5 border border-om-accent/20 rounded-2xl flex justify-between items-center group hover:bg-om-accent/10 transition-all">
                       <div>
-                        <p className="text-sm font-bold text-white uppercase">{w.title}</p>
-                        <p className="text-[10px] text-om-gray mt-1 uppercase tracking-widest">Заявка на: {new Date(w.slot_date).toLocaleDateString()}</p>
+                        <p className="text-sm font-bold text-white uppercase tracking-tight">{w.quest_title}</p>
+                        <p className="text-[10px] text-om-gray mt-1 uppercase tracking-widest font-mono">
+                          Заявка на: {new Date(w.slot_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
+                        </p>
                       </div>
-                      <span className="text-[8px] font-black text-om-accent uppercase px-3 py-1 bg-om-accent/10 rounded-full animate-pulse self-start sm:self-auto">
-                        Мониторинг мест...
-                      </span>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="text-[8px] font-black text-om-accent uppercase px-3 py-1 bg-om-accent/10 rounded-full animate-pulse border border-om-accent/20">
+                          Мониторинг мест
+                        </span>
+                        <p className="text-[7px] text-gray-600 uppercase">Менеджер свяжется с вами</p>
+                      </div>
                     </div>
                   ))
                 )}
