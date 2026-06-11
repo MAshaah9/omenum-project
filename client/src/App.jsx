@@ -52,6 +52,7 @@ function App() {
   const [myWaitlist, setMyWaitlist] = useState([]); // Состояние листа ожидания
   const [allBookings, setAllBookings] = useState([]);
   const [allReviews, setAllReviews] = useState([]);
+  const [allUsers, setAllUsers] = useState([]); // Состояние для списка всех пользователей (Админ)
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [showBookingForm, setShowBookingForm] = useState(null); // Храним данные слота
 
@@ -151,10 +152,15 @@ function App() {
     try {
       const bRes = await axios.get('/api/admin/bookings', h);
       const rRes = await axios.get('/api/admin/reviews', h);
+      const uRes = await axios.get('/api/admin/users', h);
+
       setAllBookings(bRes.data.bookings || []);
       setTotalRevenue(bRes.data.totalRevenue || 0);
       setAllReviews(rRes.data || []);
-    } catch (e) { console.error(e); }
+      setAllUsers(uRes.data || []);
+    } catch (e) { 
+      console.error("Ошибка загрузки админ-данных:", e); 
+    }
   };
 
   // --- ФУНКЦИЯ КЛИКА ПО СЕРДЦУ (ТОГГЛ ИЗБРАННОГО) ---
@@ -311,6 +317,7 @@ function App() {
         quests={quests}
         allBookings={allBookings}
         allReviews={allReviews}
+        allUsers={allUsers}
         totalRevenue={totalRevenue}
         setView={setView} 
         onAction={async (method, url, data) => {

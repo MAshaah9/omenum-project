@@ -113,7 +113,7 @@ app.post('/api/register', async (req, res) => {
         const bcryptPassword = await bcrypt.hash(password, salt);
 
         const newUser = await pool.query(
-            "INSERT INTO users (full_name, email, password, role, bonuses) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            "INSERT INTO users (full_name, email, password, role, bonuses, is_blocked) VALUES ($1, $2, $3, $4, $5, false) RETURNING *",
             [full_name, email, bcryptPassword, 'client', 0]
         );
         res.json({ message: "Регистрация успешна!", user: newUser.rows[0] });
@@ -127,6 +127,11 @@ app.post('/api/login', async (req, res) => {
         const { email, password } = req.body;
         const user = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
         if (user.rows.length === 0) return res.status(401).json("Неверный email или пароль");
+
+        // Проверка на блокировку аккаунта администратором
+        if (user.rows[0].is_blocked) {
+            return res.status(403).json("Ваш аккаунт заблокирован администратором. Доступ ограничен.");
+        }
 
         const validPassword = await bcrypt.compare(password, user.rows[0].password);
         if (!validPassword) return res.status(401).json("Неверный email или пароль");
@@ -194,7 +199,6 @@ app.get('/api/user/me', authorize, async (req, res) => {
 
 app.get('/api/user/bookings', authorize, async (req, res) => {
     try {
-        // Мы добавляем total_price, deposit_amount и players_count в выборку
         const userBookings = await pool.query(`
             SELECT 
                 bookings.id, 
@@ -233,16 +237,14 @@ app.get('/api/user/reviews', authorize, async (req, res) => {
 // 1. Записать в лист ожидания
 app.post('/api/user/waitlist', authorize, async (req, res) => {
     try {
-        // Мы принимаем и date, и slot_date для надежности
         const { quest_id, date, slot_date } = req.body;
-        const targetDate = slot_date || date; // Берем то, что пришло
+        const targetDate = slot_date || date; 
         const user_id = req.user.id;
 
         if (!quest_id || !targetDate) {
             return res.status(400).json("Не все данные переданы (quest_id или date)");
         }
 
-        // Проверка на дубликат
         const check = await pool.query(
             "SELECT * FROM waitlist WHERE user_id = $1 AND quest_id = $2 AND slot_date = $3",
             [user_id, quest_id, targetDate]
@@ -303,7 +305,6 @@ app.patch('/api/user/pay-deposit/:id', authorize, async (req, res) => {
 app.delete('/api/user/cancel-booking/:id', authorize, async (req, res) => {
     try {
         const { id } = req.params;
-        // Проверяем 24 часа перед удалением
         const booking = await pool.query("SELECT * FROM bookings WHERE id = $1 AND user_id = $2", [id, req.user.id]);
         if (booking.rows.length === 0) return res.status(404).json("Бронь не найдена");
 
@@ -322,7 +323,6 @@ app.delete('/api/user/cancel-booking/:id', authorize, async (req, res) => {
 
 // --- ИЗБРАННОЕ (FAVORITES) ---
 
-// Добавить/Удалить из избранного (Toggle)
 app.post('/api/favorites/toggle', authorize, async (req, res) => {
     try {
         const { quest_id } = req.body;
@@ -340,7 +340,6 @@ app.post('/api/favorites/toggle', authorize, async (req, res) => {
     } catch (err) { res.status(500).send("Ошибка избранного"); }
 });
 
-// Получить список избранного пользователя
 app.get('/api/user/favorites', authorize, async (req, res) => {
     try {
         const result = await pool.query(
@@ -354,7 +353,6 @@ app.get('/api/user/favorites', authorize, async (req, res) => {
 
 // --- ОТЗЫВЫ (REVIEWS) ---
 
-// Получить одобренные отзывы для конкретного квеста
 app.get('/api/reviews/:questId', async (req, res) => {
     try {
         const { questId } = req.params;
@@ -372,13 +370,11 @@ app.get('/api/reviews/:questId', async (req, res) => {
     }
 });
 
-// Оставить новый отзыв (Привязан к конкретной выполненной брони)
 app.post('/api/reviews', authorize, async (req, res) => {
     try {
         const { booking_id, rating, comment_text } = req.body;
         const user_id = req.user.id;
 
-        // 1. Проверяем, что бронь реально завершена и принадлежит этому пользователю
         const booking = await pool.query(
             "SELECT quest_id FROM bookings WHERE id = $1 AND user_id = $2 AND status = 'completed'",
             [booking_id, user_id]
@@ -388,13 +384,11 @@ app.post('/api/reviews', authorize, async (req, res) => {
             return res.status(403).json("Вы не можете оставить отзыв. Квест должен быть пройден (статус 'Завершено').");
         }
 
-        // 2. Проверяем, не оставляли ли уже отзыв на ЭТУ бронь
         const existingReview = await pool.query("SELECT * FROM reviews WHERE booking_id = $1", [booking_id]);
         if (existingReview.rows.length > 0) {
             return res.status(400).json("Вы уже оставили отзыв для этого посещения.");
         }
 
-        // 3. Сохраняем отзыв со статусом модерации 'pending'
         await pool.query(
             "INSERT INTO reviews (booking_id, user_id, quest_id, rating, comment_text, status) VALUES ($1, $2, $3, $4, $5, 'pending')",
             [booking_id, user_id, booking.rows[0].quest_id, rating, comment_text]
@@ -414,7 +408,6 @@ app.get('/api/slots/:questId', async (req, res) => {
     try {
         const { questId } = req.params;
         
-        // Магия SQL: выбираем слоты, где (дата + время) БОЛЬШЕ чем (сейчас + 3 часа)
         const slots = await pool.query(
             `SELECT * FROM time_slots 
              WHERE quest_id = $1 
@@ -428,15 +421,14 @@ app.get('/api/slots/:questId', async (req, res) => {
     }
 });
 
-// Создание подробного бронирования с сохранением total_price
 app.post('/api/book-slot', authorize, async (req, res) => {
     try {
         const { 
             slot_id, 
             players_count, 
             use_bonuses,
-            final_price,      // Получаем уже готовую сумму из формы
-            deposit_amount,   // Получаем готовую предоплату
+            final_price,      
+            deposit_amount,   
             client_name, 
             client_phone, 
             client_email, 
@@ -445,11 +437,9 @@ app.post('/api/book-slot', authorize, async (req, res) => {
         
         const userId = req.user.id;
 
-        // 1. Проверяем слот
         const slot = await pool.query("SELECT * FROM time_slots WHERE id = $1", [slot_id]);
         if (slot.rows[0].is_booked) return res.status(400).json("Слот уже занят");
 
-        // 2. Создаем бронь. ВАЖНО: записываем final_price и deposit_amount, которые прислал клиент
         const newBooking = await pool.query(
             `INSERT INTO bookings 
             (user_id, quest_id, booking_date, booking_time, status, total_price, deposit_amount, 
@@ -460,8 +450,8 @@ app.post('/api/book-slot', authorize, async (req, res) => {
                 slot.rows[0].quest_id, 
                 slot.rows[0].slot_date, 
                 slot.rows[0].slot_time, 
-                final_price,      // Итоговая цена
-                deposit_amount,   // Рассчитанная предоплата
+                final_price,      
+                deposit_amount,   
                 client_name, 
                 client_phone, 
                 client_email, 
@@ -471,7 +461,6 @@ app.post('/api/book-slot', authorize, async (req, res) => {
             ]
         );
 
-        // 3. Блокируем слот
         await pool.query("UPDATE time_slots SET is_booked = true WHERE id = $1", [slot_id]);
 
         res.json({ message: "Заявка создана! Оплатите предоплату в кабинете.", bookingId: newBooking.rows[0].id });
@@ -483,6 +472,29 @@ app.post('/api/book-slot', authorize, async (req, res) => {
 
 
 // --- АДМИН-ПАНЕЛЬ ---
+
+// Админ: Получить список всех пользователей
+app.get('/api/admin/users', authorize, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
+        const allUsers = await pool.query(
+            "SELECT id, full_name, email, role, bonuses, is_blocked FROM users ORDER BY id ASC"
+        );
+        res.json(allUsers.rows);
+    } catch (err) { res.status(500).send("Ошибка сервера"); }
+});
+
+// Админ: Блокировка / Разблокировка пользователя
+app.patch('/api/admin/users/:id/toggle-block', authorize, async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
+        const { id } = req.params;
+        const { is_blocked } = req.body;
+
+        await pool.query("UPDATE users SET is_blocked = $1 WHERE id = $2", [is_blocked, id]);
+        res.json(`Статус пользователя изменен на ${is_blocked ? 'Заблокирован' : 'Активен'}`);
+    } catch (err) { res.status(500).send("Ошибка сервера"); }
+});
 
 // СОЗДАНИЕ КВЕСТА
 app.post('/api/admin/quests', authorize, async (req, res) => {
@@ -610,18 +622,16 @@ app.delete('/api/admin/bookings/:id', authorize, async (req, res) => {
 // Подтверждение оплаты админом и зачисление бонусов
 app.patch('/api/admin/credit-bonuses/:id', authorize, async (req, res) => {
     try {
-        const { bonusAmount } = req.body; // сколько админ НАЧИСЛЯЕТ за игру
+        const { bonusAmount } = req.body; 
         const bookingId = req.params.id;
 
         const booking = await pool.query("SELECT user_id, use_bonuses FROM bookings WHERE id = $1", [bookingId]);
         const { user_id, use_bonuses } = booking.rows[0];
 
-        // Если клиент ПРИМЕНИЛ скидку (30 оменов), мы их сейчас списываем
         if (use_bonuses) {
             await pool.query("UPDATE users SET bonuses = bonuses - 30 WHERE id = $1", [user_id]);
         }
 
-        // Начисляем новые бонусы за саму игру
         await pool.query("UPDATE users SET bonuses = bonuses + $1 WHERE id = $2", [bonusAmount, user_id]);
         await pool.query("UPDATE bookings SET status = 'confirmed' WHERE id = $1", [bookingId]);
 
@@ -654,7 +664,7 @@ app.post('/api/admin/panic/:questId', authorize, async (req, res) => {
     }
 });
 
-// 3. УПРАВЛЕНИЕ ОТЗЫВАМИ (ОБНОВЛЕННЫЙ АДМИНСКИЙ МАРШРУТ)
+// УПРАВЛЕНИЕ ОТЗЫВАМИ
 app.get('/api/admin/reviews', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
@@ -780,7 +790,6 @@ app.post('/api/user/buy', authorize, async (req, res) => {
 app.post('/api/contact', async (req, res) => {
     try {
         const { name, email, question } = req.body;
-        // На защите говорим, что здесь код отправки на email
         console.log(`НОВЫЙ ВОПРОС ОТ ${name} (${email}): ${question}`);
         res.json("Ваш вопрос успешно отправлен! Администратор ответит вам на указанную почту.");
     } catch (err) {
@@ -792,5 +801,3 @@ app.post('/api/contact', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Сервер запустился на порту ${PORT}`);
 });
-
-module.exports = app; // Это нужно специально для Vercel

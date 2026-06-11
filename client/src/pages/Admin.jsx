@@ -14,14 +14,15 @@ import {
   Menu,
   X,
   ChevronLeft,
-  Edit3
+  Edit3,
+  User // Добавлена иконка пользователя
 } from 'lucide-react';
 import axios from 'axios';
 
 // Импорт BonusModal
 import BonusModal from "../components/BonusModal";
 
-const Admin = ({ quests, allBookings, allReviews, totalRevenue, onAction, setView }) => {
+const Admin = ({ quests, allBookings, allReviews, allUsers = [], totalRevenue, onAction, setView }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [isMenuOpen, setIsMenuOpen] = useState(false); // Состояние для мобильного меню
   const [replyText, setReplyText] = useState({ id: null, text: '' });
@@ -105,6 +106,7 @@ const Admin = ({ quests, allBookings, allReviews, totalRevenue, onAction, setVie
             { id: 'reviews', label: 'Модерация', icon: <MessageSquare size={18}/> },
             { id: 'schedule', label: 'Расписание', icon: <Zap size={18}/> },
             { id: 'inventory', label: 'База квестов', icon: <Database size={18}/> },
+            { id: 'users_list', label: 'Пользователи', icon: <User size={18}/> }, // Новая кнопка
           ].map(item => (
             <button
               key={item.id}
@@ -623,6 +625,63 @@ const Admin = ({ quests, allBookings, allReviews, totalRevenue, onAction, setVie
                     </div>
                   </div>
                 ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* ВКЛАДКА: ПОЛЬЗОВАТЕЛИ */}
+          {activeTab === 'users_list' && (
+            <motion.div initial={{opacity:0}} animate={{opacity:1}} key="users" className="space-y-8">
+              <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter uppercase italic">Реестр искателей</h2>
+              
+              <div className="bg-om-surface border border-white/5 rounded-[2.5rem] overflow-hidden shadow-2xl overflow-x-auto">
+                <table className="w-full text-left min-w-[600px]">
+                  <thead className="bg-white/5 text-[9px] uppercase text-om-gray font-bold tracking-widest">
+                    <tr>
+                      <th className="p-6">Имя / Email</th>
+                      <th className="p-6">Роль</th>
+                      <th className="p-6">Бонусы</th>
+                      <th className="p-6 text-right">Статус доступа</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {allUsers.map(u => (
+                      <tr key={u.id} className={`transition ${u.is_blocked ? 'bg-red-900/5' : 'hover:bg-white/[0.01]'}`}>
+                        <td className="p-6">
+                          <p className="text-sm font-bold text-white">{u.full_name}</p>
+                          <p className="text-[10px] text-om-gray font-mono">{u.email}</p>
+                        </td>
+                        <td className="p-6">
+                          <span className={`text-[9px] px-2 py-1 rounded border ${u.role === 'admin' ? 'border-om-gold text-om-gold' : 'border-white/10 text-om-gray'}`}>
+                            {u.role ? u.role.toUpperCase() : 'CLIENT'}
+                          </span>
+                        </td>
+                        <td className="p-6 font-mono text-sm text-white">{u.bonuses || 0} OM</td>
+                        <td className="p-6 text-right">
+                          {u.role !== 'admin' && ( // Не даем админу заблокировать самого себя
+                            <button 
+                              onClick={() => onAction('patch', `/api/admin/users/${u.id}/toggle-block`, { is_blocked: !u.is_blocked })}
+                              className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all border ${
+                                u.is_blocked 
+                                ? 'bg-green-600/10 text-green-500 border-green-500/20 hover:bg-green-600 hover:text-white' 
+                                : 'bg-red-600/10 text-red-500 border-red-500/20 hover:bg-red-600 hover:text-white'
+                              }`}
+                            >
+                              {u.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {allUsers.length === 0 && (
+                      <tr>
+                        <td colSpan="4" className="p-6 text-center text-xs text-om-gray uppercase tracking-widest">
+                          Пользователи не найдены
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </motion.div>
           )}
