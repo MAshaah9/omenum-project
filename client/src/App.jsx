@@ -239,27 +239,30 @@ function App() {
     });
   };
 
-  // --- СИСТЕМНЫЕ ФУНКЦИИ (ИСПРАВЛЕННАЯ АУТЕНТИФИКАЦИЯ) ---
+  // --- МЕТОД АУТЕНТИФИКАЦИИ С ОБЯЗАТЕЛЬНЫМ СОХРАНЕНИЕМ ТОКЕНА ---
   const handleAuth = async (e) => {
     e.preventDefault();
     const endpoint = isLogin ? '/api/login' : '/api/register';
     try {
       const res = await axios.post(endpoint, formData);
       
-      // МЫ ДОЛЖНЫ СОХРАНЯТЬ ТОКЕН И ПРИ ВХОДЕ, И ПРИ РЕГИСТРАЦИИ
-      localStorage.setItem('token', res.data.token);
-      localStorage.setItem('user', JSON.stringify(res.data.user));
-      setUser(res.data.user);
-      setShowAuthModal(false);
-      
-      if (res.data.user.role === 'admin') {
-        setView('admin');
-      } else {
-        setView('main');
-        loadUserData();
+      // Надежно сохраняем токен в память браузера для любых сценариев (вход и регистрация)
+      if (res.data.token) {
+        localStorage.setItem('token', res.data.token);
+        localStorage.setItem('user', JSON.stringify(res.data.user));
+        setUser(res.data.user);
+        setShowAuthModal(false);
+        
+        // Перенаправляем потоки интерфейса и подгружаем данные
+        if (res.data.user.role === 'admin') {
+          setView('admin');
+        } else {
+          loadUserData();
+          setView('main');
+        }
+        
+        alert(isLogin ? "С возвращением!" : "Регистрация успешна!");
       }
-
-      alert(isLogin ? "С возвращением!" : "Регистрация успешна!");
     } catch (err) { 
       alert(err.response?.data || "Ошибка доступа"); 
     }

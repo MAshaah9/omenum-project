@@ -103,21 +103,34 @@ app.get('/api/quests/:id/details', async (req, res) => {
 
 // --- АВТОРИЗАЦИЯ ---
 
+// ОБНОВЛЕННЫЙ МАРШРУТ РЕГИСТРАЦИИ (Авто-логин + дефолтные значения полей)
 app.post('/api/register', async (req, res) => {
     try {
         const { full_name, email, password } = req.body;
         const user = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
-        if (user.rows.length !== 0) return res.status(401).json("Пользователь уже существует");
+        if (user.rows.length !== 0) return res.status(401).json("Email уже занят");
 
         const salt = await bcrypt.genSalt(10);
         const bcryptPassword = await bcrypt.hash(password, salt);
 
+        // ВАЖНО: Прописываем все дефолтные значения вручную для надежности
         const newUser = await pool.query(
-            "INSERT INTO users (full_name, email, password, role, bonuses, is_blocked) VALUES ($1, $2, $3, $4, $5, false) RETURNING *",
-            [full_name, email, bcryptPassword, 'client', 0]
+            `INSERT INTO users 
+            (full_name, email, password, role, bonuses, pending_discount, avatar_border, nick_style, is_blocked) 
+            VALUES ($1, $2, $3, 'client', 0, 0, 'none', 'normal', false) RETURNING *`,
+            [full_name, email, bcryptPassword]
         );
-        res.json({ message: "Регистрация успешна!", user: newUser.rows[0] });
+
+        // Сразу создаем токен, чтобы пользователь мог бронировать без перелогина
+        const token = jwt.sign(
+            { id: newUser.rows[0].id, role: newUser.rows[0].role },
+            process.env.JWT_SECRET,
+            { expiresIn: "24h" }
+        );
+
+        res.json({ token, user: newUser.rows[0] });
     } catch (err) {
+        console.error(err.message);
         res.status(500).send("Ошибка при регистрации");
     }
 });
@@ -234,7 +247,6 @@ app.get('/api/user/reviews', authorize, async (req, res) => {
     }
 });
 
-// 1. Записать в лист ожидания
 app.post('/api/user/waitlist', authorize, async (req, res) => {
     try {
         const { quest_id, date, slot_date } = req.body;
@@ -266,7 +278,6 @@ app.post('/api/user/waitlist', authorize, async (req, res) => {
     }
 });
 
-// 2. Получить лист ожидания конкретного пользователя
 app.get('/api/user/waitlist', authorize, async (req, res) => {
     try {
         const result = await pool.query(
@@ -473,7 +484,6 @@ app.post('/api/book-slot', authorize, async (req, res) => {
 
 // --- АДМИН-ПАНЕЛЬ ---
 
-// Админ: Получить список всех пользователей
 app.get('/api/admin/users', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
@@ -484,7 +494,6 @@ app.get('/api/admin/users', authorize, async (req, res) => {
     } catch (err) { res.status(500).send("Ошибка сервера"); }
 });
 
-// Админ: Блокировка / Разблокировка пользователя
 app.patch('/api/admin/users/:id/toggle-block', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
@@ -496,7 +505,6 @@ app.patch('/api/admin/users/:id/toggle-block', authorize, async (req, res) => {
     } catch (err) { res.status(500).send("Ошибка сервера"); }
 });
 
-// СОЗДАНИЕ КВЕСТА
 app.post('/api/admin/quests', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
@@ -525,7 +533,6 @@ app.post('/api/admin/quests', authorize, async (req, res) => {
     }
 });
 
-// Редактирование квеста
 app.patch('/api/admin/quests/:id', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
@@ -559,7 +566,6 @@ app.patch('/api/admin/quests/:id', authorize, async (req, res) => {
     }
 });
 
-// Админ: Добавить картинку в галерею
 app.post('/api/admin/quests/:id/images', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
@@ -575,7 +581,6 @@ app.post('/api/admin/quests/:id/images', authorize, async (req, res) => {
     }
 });
 
-// ПОЛУЧЕНИЕ БРОНЕЙ ДЛЯ АДМИНА
 app.get('/api/admin/bookings', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
@@ -591,7 +596,6 @@ app.get('/api/admin/bookings', authorize, async (req, res) => {
     } catch (err) { res.status(500).send("Ошибка"); }
 });
 
-// Универсальное обновление статуса брони админом
 app.patch('/api/admin/bookings/:id', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
@@ -605,7 +609,6 @@ app.patch('/api/admin/bookings/:id', authorize, async (req, res) => {
     }
 });
 
-// УДАЛЕНИЕ БРОНИ АДМИНОМ
 app.delete('/api/admin/bookings/:id', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
@@ -619,7 +622,6 @@ app.delete('/api/admin/bookings/:id', authorize, async (req, res) => {
     } catch (err) { res.status(500).send("Ошибка удаления"); }
 });
 
-// Подтверждение оплаты админом и зачисление бонусов
 app.patch('/api/admin/credit-bonuses/:id', authorize, async (req, res) => {
     try {
         const { bonusAmount } = req.body; 
@@ -639,7 +641,6 @@ app.patch('/api/admin/credit-bonuses/:id', authorize, async (req, res) => {
     } catch (err) { res.status(500).send("Ошибка"); }
 });
 
-// --- PANIC BUTTON (АДМИН) ---
 app.post('/api/admin/panic/:questId', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
@@ -664,7 +665,6 @@ app.post('/api/admin/panic/:questId', authorize, async (req, res) => {
     }
 });
 
-// УПРАВЛЕНИЕ ОТЗЫВАМИ
 app.get('/api/admin/reviews', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
@@ -694,7 +694,6 @@ app.patch('/api/admin/reviews/:id', authorize, async (req, res) => {
     } catch (err) { res.status(500).send("Ошибка при модерации"); }
 });
 
-// УПРАВЛЕНИЕ РАСПИСАНИЕМ И КВЕСТАМИ
 app.post('/api/admin/generate-schedule/:questId', authorize, async (req, res) => {
     try {
         if (req.user.role !== 'admin') return res.status(403).send("Нет доступа");
