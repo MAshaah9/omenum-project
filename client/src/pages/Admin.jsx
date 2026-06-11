@@ -631,57 +631,102 @@ const Admin = ({ quests, allBookings, allReviews, allUsers = [], totalRevenue, o
 
           {/* ВКЛАДКА: ПОЛЬЗОВАТЕЛИ */}
           {activeTab === 'users_list' && (
-            <motion.div initial={{opacity:0}} animate={{opacity:1}} key="users" className="space-y-8">
-              <h2 className="text-2xl md:text-4xl font-black text-white tracking-tighter uppercase italic">Реестр искателей</h2>
+            <motion.div initial={{opacity:0}} animate={{opacity:1}} key="users" className="space-y-8 animate-in fade-in duration-500">
+              <h2 className="text-2xl md:text-4xl font-black text-white mb-6 md:mb-10 tracking-tighter uppercase italic">Реестр искателей</h2>
               
-              <div className="bg-om-surface border border-white/5 rounded-[2.5rem] overflow-hidden shadow-2xl overflow-x-auto">
-                <table className="w-full text-left min-w-[600px]">
-                  <thead className="bg-white/5 text-[9px] uppercase text-om-gray font-bold tracking-widest">
-                    <tr>
-                      <th className="p-6">Имя / Email</th>
-                      <th className="p-6">Роль</th>
-                      <th className="p-6">Бонусы</th>
-                      <th className="p-6 text-right">Статус доступа</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {allUsers.map(u => (
-                      <tr key={u.id} className={`transition ${u.is_blocked ? 'bg-red-900/5' : 'hover:bg-white/[0.01]'}`}>
-                        <td className="p-6">
-                          <p className="text-sm font-bold text-white">{u.full_name}</p>
+              <div className="space-y-4 lg:space-y-0">
+                
+                {/* 📱 МОБИЛЬНЫЙ ВИД: КАРТОЧКИ (видны только на маленьких экранах) */}
+                <div className="grid grid-cols-1 gap-4 lg:hidden">
+                  {allUsers.map(u => (
+                    <div key={u.id} className={`p-6 rounded-3xl border transition-all ${u.is_blocked ? 'bg-red-900/10 border-red-500/30' : 'bg-om-surface border-white/5'}`}>
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <p className="text-sm font-bold text-white uppercase">{u.full_name}</p>
                           <p className="text-[10px] text-om-gray font-mono">{u.email}</p>
-                        </td>
-                        <td className="p-6">
-                          <span className={`text-[9px] px-2 py-1 rounded border ${u.role === 'admin' ? 'border-om-gold text-om-gold' : 'border-white/10 text-om-gray'}`}>
-                            {u.role ? u.role.toUpperCase() : 'CLIENT'}
-                          </span>
-                        </td>
-                        <td className="p-6 font-mono text-sm text-white">{u.bonuses || 0} OM</td>
-                        <td className="p-6 text-right">
-                          {u.role !== 'admin' && ( // Не даем админу заблокировать самого себя
-                            <button 
-                              onClick={() => onAction('patch', `/api/admin/users/${u.id}/toggle-block`, { is_blocked: !u.is_blocked })}
-                              className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all border ${
-                                u.is_blocked 
-                                ? 'bg-green-600/10 text-green-500 border-green-500/20 hover:bg-green-600 hover:text-white' 
-                                : 'bg-red-600/10 text-red-500 border-red-500/20 hover:bg-red-600 hover:text-white'
-                              }`}
-                            >
-                              {u.is_blocked ? 'Разблокировать' : 'Заблокировать'}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                    {allUsers.length === 0 && (
+                        </div>
+                        <span className={`text-[8px] px-2 py-1 rounded border font-bold uppercase ${u.role === 'admin' ? 'border-om-gold text-om-gold' : 'border-white/10 text-om-gray'}`}>
+                          {u.role ? u.role.toUpperCase() : 'CLIENT'}
+                        </span>
+                      </div>
+                      
+                      <div className="flex justify-between items-center pt-4 border-t border-white/5">
+                        <div>
+                          <p className="text-[9px] text-gray-500 uppercase font-bold">Баланс</p>
+                          <p className="text-sm font-black text-om-accent">{u.bonuses || 0} OM</p>
+                        </div>
+                        
+                        {u.role !== 'admin' && (
+                          <button 
+                            onClick={() => onAction('patch', `/api/admin/users/${u.id}/toggle-block`, { is_blocked: !u.is_blocked })}
+                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+                              u.is_blocked ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+                            }`}
+                          >
+                            {u.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {allUsers.length === 0 && (
+                    <div className="p-6 text-center text-xs text-om-gray uppercase tracking-widest bg-om-surface rounded-3xl border border-white/5">
+                      Пользователи не найдены
+                    </div>
+                  )}
+                </div>
+
+                {/* 💻 ДЕСКТОПНЫЙ ВИД: ТАБЛИЦА (скрыта на мобилках) */}
+                <div className="hidden lg:block bg-om-surface border border-white/5 rounded-[2.5rem] overflow-hidden shadow-2xl">
+                  <table className="w-full text-left">
+                    <thead className="bg-white/5 text-[9px] uppercase text-om-gray font-bold tracking-widest">
                       <tr>
-                        <td colSpan="4" className="p-6 text-center text-xs text-om-gray uppercase tracking-widest">
-                          Пользователи не найдены
-                        </td>
+                        <th className="p-6">Имя / Email</th>
+                        <th className="p-6">Роль</th>
+                        <th className="p-6">Бонусы</th>
+                        <th className="p-6 text-right">Статус доступа</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {allUsers.map(u => (
+                        <tr key={u.id} className={`transition ${u.is_blocked ? 'bg-red-900/5' : 'hover:bg-white/[0.01]'}`}>
+                          <td className="p-6">
+                            <p className="text-sm font-bold text-white">{u.full_name}</p>
+                            <p className="text-[10px] text-om-gray font-mono">{u.email}</p>
+                          </td>
+                          <td className="p-6">
+                            <span className={`text-[9px] px-2 py-1 rounded border ${u.role === 'admin' ? 'border-om-gold text-om-gold' : 'border-white/10 text-om-gray'}`}>
+                              {u.role ? u.role.toUpperCase() : 'CLIENT'}
+                            </span>
+                          </td>
+                          <td className="p-6 font-mono text-sm text-white">{u.bonuses || 0} OM</td>
+                          <td className="p-6 text-right">
+                            {u.role !== 'admin' && (
+                              <button 
+                                onClick={() => onAction('patch', `/api/admin/users/${u.id}/toggle-block`, { is_blocked: !u.is_blocked })}
+                                className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all border ${
+                                  u.is_blocked 
+                                  ? 'bg-green-600/10 text-green-500 border-green-500/20 hover:bg-green-600 hover:text-white' 
+                                  : 'bg-red-600/10 text-red-500 border-red-500/20 hover:bg-red-600 hover:text-white'
+                                }`}
+                              >
+                                {u.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {allUsers.length === 0 && (
+                        <tr>
+                          <td colSpan="4" className="p-6 text-center text-xs text-om-gray uppercase tracking-widest">
+                            Пользователи не найдены
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
               </div>
             </motion.div>
           )}

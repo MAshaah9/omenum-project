@@ -72,7 +72,8 @@ const QuestDetails = ({ quest, onClose, onBook }) => {
               <span className="bg-white/5 border border-white/10 px-3 py-1 rounded-lg text-[10px] font-bold uppercase text-om-gray tracking-widest">{quest.min_age}+</span>
             </div>
 
-            <p className="text-om-gray text-sm sm:text-base lg:text-lg leading-relaxed font-light italic border-l-2 border-om-accent/30 pl-4 sm:pl-6 py-1 sm:py-2">
+            {/* ОБНОВЛЕННЫЙ БЛОК ОПИСАНИЯ КВЕСТА */}
+            <p className="text-om-gray text-sm md:text-lg leading-relaxed font-normal md:font-light md:italic border-l border-om-accent/30 md:border-l-2 pl-4 md:pl-6 py-2">
               {quest.description}
             </p>
 
